@@ -251,13 +251,16 @@ impl AssetType {
                 ("types", "static"),
                 ("nsfw", "any"),
             ],
+
             Self::Hero => &[
                 ("dimensions", "3840x1240"),
                 ("types", "static"),
                 ("nsfw", "any"),
             ],
-            Self::Logo => &[("types", "static"), ("nsfw", "any")],
-            Self::Icon => &[("styles", "official"), ("types", "static"), ("nsfw", "any")],
+
+            Self::Logo | Self::Icon => {
+                &[("styles", "official"), ("types", "static"), ("nsfw", "any")]
+            }
         }
     }
 }
