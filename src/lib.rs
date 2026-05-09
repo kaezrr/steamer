@@ -2,6 +2,7 @@ pub mod asset_kind;
 
 use std::io;
 use std::io::Write;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -69,7 +70,10 @@ impl SteamGridClient {
         Ok(response.data)
     }
 
-    pub async fn find_asset<T: AssetKind>(&self, game_id: u64) -> anyhow::Result<Vec<GridAsset>> {
+    pub async fn find_asset<T: AssetKind>(
+        &self,
+        game_id: u64,
+    ) -> anyhow::Result<Vec<GridAsset<T>>> {
         let url = format!("{}{}{}", self.base_url, T::url(), game_id);
 
         let response = self
@@ -79,7 +83,7 @@ impl SteamGridClient {
             .send()
             .await?
             .error_for_status()?
-            .json::<ApiResponse<Vec<GridAsset>>>()
+            .json::<ApiResponse<Vec<GridAsset<T>>>>()
             .await?;
 
         Ok(response.data)
@@ -87,9 +91,9 @@ impl SteamGridClient {
 
     pub async fn download_asset<T: AssetKind>(
         &self,
-        asset: &GridAsset,
+        asset: &GridAsset<T>,
         mp: Arc<MultiProgress>,
-    ) -> anyhow::Result<Image> {
+    ) -> anyhow::Result<Image<T>> {
         let response = self
             .download_client
             .get(&asset.url)
@@ -127,6 +131,7 @@ impl SteamGridClient {
         Ok(Image {
             bytes: bytes.freeze(),
             format,
+            marker: PhantomData,
         })
     }
 
@@ -181,7 +186,7 @@ pub struct PlatformData {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct GridAsset {
+pub struct GridAsset<T: AssetKind> {
     pub id: u64,
     pub score: i32,
     pub style: String,
@@ -199,6 +204,9 @@ pub struct GridAsset {
     pub upvotes: u32,
     pub downvotes: u32,
     pub author: Author,
+
+    #[serde(skip)]
+    marker: PhantomData<T>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -208,9 +216,10 @@ pub struct Author {
     pub avatar: String,
 }
 
-pub struct Image {
+pub struct Image<T: AssetKind> {
     bytes: Bytes,
     format: ImageType,
+    marker: PhantomData<T>,
 }
 
 pub enum ImageType {
@@ -220,8 +229,8 @@ pub enum ImageType {
     Ico,
 }
 
-impl Image {
-    pub fn save<T: AssetKind>(self, app_id: u32, dir: &Path) -> std::io::Result<String> {
+impl<T: AssetKind> Image<T> {
+    pub fn save(self, app_id: u32, dir: &Path) -> std::io::Result<String> {
         let ext = match self.format {
             ImageType::Jpg => "jpg",
             ImageType::Png | ImageType::Webp => "png", // Webp saves as png
@@ -329,9 +338,9 @@ pub fn asset_exists<T: AssetKind>(app_id: u32, grid_dir: &Path) -> bool {
 
 pub async fn download_first_if_any<T: AssetKind>(
     client: &SteamGridClient,
-    assets: Option<&[GridAsset]>,
+    assets: Option<&[GridAsset<T>]>,
     mp: Arc<MultiProgress>,
-) -> anyhow::Result<Option<Image>> {
+) -> anyhow::Result<Option<Image<T>>> {
     if let Some(asset) = assets.and_then(|v| v.first()) {
         Ok(Some(client.download_asset::<T>(asset, mp).await?))
     } else {

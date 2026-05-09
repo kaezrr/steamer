@@ -1,4 +1,4 @@
-pub trait AssetKind {
+pub trait AssetKind: Send + Sync {
     fn url() -> &'static str;
     fn query_params() -> &'static [(&'static str, &'static str)];
     fn filename(app_id: u32, ext: &str) -> String;

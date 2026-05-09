@@ -112,10 +112,10 @@ async fn main() -> anyhow::Result<()> {
         let mp = Arc::new(MultiProgress::new());
 
         let (grid, hero, logo, icon) = tokio::join!(
-            download_first_if_any::<Grid>(&client, grids.as_deref(), mp.clone()),
-            download_first_if_any::<Hero>(&client, heroes.as_deref(), mp.clone()),
-            download_first_if_any::<Logo>(&client, logos.as_deref(), mp.clone()),
-            download_first_if_any::<Icon>(&client, icons.as_deref(), mp.clone()),
+            download_first_if_any(&client, grids.as_deref(), mp.clone()),
+            download_first_if_any(&client, heroes.as_deref(), mp.clone()),
+            download_first_if_any(&client, logos.as_deref(), mp.clone()),
+            download_first_if_any(&client, icons.as_deref(), mp.clone()),
         );
 
         let grid = grid?;
@@ -124,16 +124,16 @@ async fn main() -> anyhow::Result<()> {
         let icon = icon?;
 
         if let Some(g) = grid {
-            g.save::<Grid>(app_id, &paths.grid)?;
+            g.save(app_id, &paths.grid)?;
         }
         if let Some(h) = hero {
-            h.save::<Hero>(app_id, &paths.grid)?;
+            h.save(app_id, &paths.grid)?;
         }
         if let Some(l) = logo {
-            l.save::<Logo>(app_id, &paths.grid)?;
+            l.save(app_id, &paths.grid)?;
         }
         if let Some(i) = icon {
-            v["icon"] = Value::String(i.save::<Icon>(app_id, &paths.grid)?);
+            v["icon"] = Value::String(i.save(app_id, &paths.grid)?);
         }
 
         println!("\n\n");
