@@ -6,14 +6,17 @@ use new_vdf_parser::open_shortcuts_vdf;
 use new_vdf_parser::write_shortcuts_vdf;
 use serde_json::Map;
 use serde_json::Value;
-use steamer::AssetType;
 use steamer::SteamGridClient;
 use steamer::SteamPaths;
 use steamer::asset_exists;
+use steamer::asset_kind::Grid;
+use steamer::asset_kind::Hero;
+use steamer::asset_kind::Icon;
+use steamer::asset_kind::Logo;
 use steamer::choose_game;
 use steamer::download_first_if_any;
 
-macro_rules! optional_async {
+macro_rules! async_if {
     ($cond:ident, $request:expr) => {
         async { if $cond { Some($request.await) } else { None } }
     };
@@ -28,6 +31,14 @@ struct Args {
     /// Your SteamGridDB API key
     #[arg(long)]
     api_key: String,
+
+    /// Fetch official steam store assets
+    #[arg(long, default_value_t = false)]
+    official: bool,
+
+    /// Dry run the application without making any changes
+    #[arg(long, short, default_value_t = false)]
+    dry_run: bool,
 
     /// Interactively choose which SteamGridDB game to pick
     #[arg(long, short, default_value_t = false)]
@@ -69,23 +80,28 @@ async fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        let need_grid = args.overwrite || !asset_exists(app_id, &paths.grid, &AssetType::Grid);
-        let need_hero = args.overwrite || !asset_exists(app_id, &paths.grid, &AssetType::Hero);
-        let need_logo = args.overwrite || !asset_exists(app_id, &paths.grid, &AssetType::Logo);
-        let need_icon = args.overwrite || !asset_exists(app_id, &paths.grid, &AssetType::Icon);
+        let need_grid = args.overwrite || !asset_exists::<Grid>(app_id, &paths.grid);
+        let need_hero = args.overwrite || !asset_exists::<Hero>(app_id, &paths.grid);
+        let need_logo = args.overwrite || !asset_exists::<Logo>(app_id, &paths.grid);
+        let need_icon = args.overwrite || !asset_exists::<Icon>(app_id, &paths.grid);
 
         if !need_grid && !need_hero && !need_logo && !need_icon {
             println!("All assets already exist, skipping {app_name}\n");
             continue;
         }
 
+        if args.official {
+            let steam_appid = client.find_steam_appid(game.id).await?;
+            println!("{steam_appid:?}");
+        }
+
         println!("Downloading assets for: {} (app_id {})", game.name, game.id);
 
         let (grids, heroes, logos, icons) = tokio::join!(
-            optional_async!(need_grid, client.find_asset(game.id, AssetType::Grid)),
-            optional_async!(need_hero, client.find_asset(game.id, AssetType::Hero)),
-            optional_async!(need_logo, client.find_asset(game.id, AssetType::Logo)),
-            optional_async!(need_icon, client.find_asset(game.id, AssetType::Icon)),
+            async_if!(need_grid, client.find_asset::<Grid>(game.id)),
+            async_if!(need_hero, client.find_asset::<Hero>(game.id)),
+            async_if!(need_logo, client.find_asset::<Logo>(game.id)),
+            async_if!(need_icon, client.find_asset::<Icon>(game.id)),
         );
 
         let grids = grids.transpose()?;
@@ -96,10 +112,10 @@ async fn main() -> anyhow::Result<()> {
         let mp = Arc::new(MultiProgress::new());
 
         let (grid, hero, logo, icon) = tokio::join!(
-            download_first_if_any(&client, grids.as_deref(), AssetType::Grid, mp.clone()),
-            download_first_if_any(&client, heroes.as_deref(), AssetType::Hero, mp.clone()),
-            download_first_if_any(&client, logos.as_deref(), AssetType::Logo, mp.clone()),
-            download_first_if_any(&client, icons.as_deref(), AssetType::Icon, mp.clone()),
+            download_first_if_any::<Grid>(&client, grids.as_deref(), mp.clone()),
+            download_first_if_any::<Hero>(&client, heroes.as_deref(), mp.clone()),
+            download_first_if_any::<Logo>(&client, logos.as_deref(), mp.clone()),
+            download_first_if_any::<Icon>(&client, icons.as_deref(), mp.clone()),
         );
 
         let grid = grid?;
@@ -108,16 +124,16 @@ async fn main() -> anyhow::Result<()> {
         let icon = icon?;
 
         if let Some(g) = grid {
-            g.save(app_id, &paths.grid, AssetType::Grid)?;
+            g.save::<Grid>(app_id, &paths.grid)?;
         }
         if let Some(h) = hero {
-            h.save(app_id, &paths.grid, AssetType::Hero)?;
+            h.save::<Hero>(app_id, &paths.grid)?;
         }
         if let Some(l) = logo {
-            l.save(app_id, &paths.grid, AssetType::Logo)?;
+            l.save::<Logo>(app_id, &paths.grid)?;
         }
         if let Some(i) = icon {
-            v["icon"] = Value::String(i.save(app_id, &paths.grid, AssetType::Icon)?);
+            v["icon"] = Value::String(i.save::<Icon>(app_id, &paths.grid)?);
         }
 
         println!("\n\n");

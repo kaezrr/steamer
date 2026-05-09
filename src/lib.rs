@@ -1,10 +1,12 @@
-use std::fmt::Display;
+pub mod asset_kind;
+
 use std::io;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use asset_kind::AssetKind;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
@@ -67,17 +69,13 @@ impl SteamGridClient {
         Ok(response.data)
     }
 
-    pub async fn find_asset(
-        &self,
-        game_id: u64,
-        asset_type: AssetType,
-    ) -> anyhow::Result<Vec<GridAsset>> {
-        let url = format!("{}{}{}", self.base_url, asset_type.get_url(), game_id);
+    pub async fn find_asset<T: AssetKind>(&self, game_id: u64) -> anyhow::Result<Vec<GridAsset>> {
+        let url = format!("{}{}{}", self.base_url, T::url(), game_id);
 
         let response = self
             .client
             .get(&url)
-            .query(asset_type.get_query_params())
+            .query(T::query_params())
             .send()
             .await?
             .error_for_status()?
@@ -87,10 +85,9 @@ impl SteamGridClient {
         Ok(response.data)
     }
 
-    pub async fn download_asset(
+    pub async fn download_asset<T: AssetKind>(
         &self,
         asset: &GridAsset,
-        asset_type: AssetType,
         mp: Arc<MultiProgress>,
     ) -> anyhow::Result<Image> {
         let response = self
@@ -103,7 +100,7 @@ impl SteamGridClient {
         let total = response.content_length().unwrap_or(0);
         let pb = mp.add(
             ProgressBar::new(total)
-                .with_message(format!("Downloading {asset_type}..."))
+                .with_message(format!("Downloading {}...", T::display_name()))
                 .with_style(ProgressStyle::with_template(
                     "{msg:12} [{bar:40.cyan/blue}] {bytes:>7}/{total_bytes:7} {eta}",
                 )?),
@@ -132,6 +129,28 @@ impl SteamGridClient {
             format,
         })
     }
+
+    pub async fn find_steam_appid(&self, steamgrid_id: u64) -> anyhow::Result<Option<u64>> {
+        let url = format!("{}/games/id/{steamgrid_id}", self.base_url);
+
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("platformdata", "steam")])
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ApiResponse<GameSearchObject>>()
+            .await?;
+
+        Ok(response
+            .data
+            .external_platform_data
+            .as_ref()
+            .and_then(|x| x.steam.first())
+            .map(|x| x.id.parse::<u64>())
+            .transpose()?)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -148,6 +167,17 @@ pub struct GameSearchObject {
     pub verified: bool,
     pub types: Vec<String>,
     pub release_date: Option<u64>,
+    pub external_platform_data: Option<SteamPlatformData>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SteamPlatformData {
+    pub steam: Vec<PlatformData>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct PlatformData {
+    pub id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -178,25 +208,6 @@ pub struct Author {
     pub avatar: String,
 }
 
-#[derive(Clone, Copy)]
-pub enum AssetType {
-    Grid,
-    Hero,
-    Logo,
-    Icon,
-}
-
-impl Display for AssetType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Grid => write!(f, "Grid"),
-            Self::Hero => write!(f, "Hero"),
-            Self::Logo => write!(f, "Logo"),
-            Self::Icon => write!(f, "Icon"),
-        }
-    }
-}
-
 pub struct Image {
     bytes: Bytes,
     format: ImageType,
@@ -210,58 +221,19 @@ pub enum ImageType {
 }
 
 impl Image {
-    pub fn save(self, app_id: u32, dir: &Path, asset_type: AssetType) -> std::io::Result<String> {
+    pub fn save<T: AssetKind>(self, app_id: u32, dir: &Path) -> std::io::Result<String> {
         let ext = match self.format {
             ImageType::Jpg => "jpg",
             ImageType::Png | ImageType::Webp => "png", // Webp saves as png
             ImageType::Ico => "ico",
         };
 
-        let filename = match asset_type {
-            AssetType::Grid => format!("{app_id}p.{ext}"),
-            AssetType::Hero => format!("{app_id}_hero.{ext}"),
-            AssetType::Logo => format!("{app_id}_logo.{ext}"),
-            AssetType::Icon => format!("{app_id}_icon.{ext}"),
-        };
-
+        let filename = T::filename(app_id, ext);
         let path = dir.join(&filename);
 
         std::fs::write(&path, self.bytes)?;
 
         Ok(path.display().to_string())
-    }
-}
-
-impl AssetType {
-    const fn get_url(self) -> &'static str {
-        match self {
-            Self::Grid => "/grids/game/",
-            Self::Hero => "/heroes/game/",
-            Self::Logo => "/logos/game/",
-            Self::Icon => "/icons/game/",
-        }
-    }
-
-    /// If you want to customize your banner types, you will need to change these query parameters
-    /// Maybe in future these could be user configurable
-    const fn get_query_params(&self) -> &[(&'static str, &'static str)] {
-        match self {
-            Self::Grid => &[
-                ("dimensions", "600x900"),
-                ("types", "static"),
-                ("nsfw", "any"),
-            ],
-
-            Self::Hero => &[
-                ("dimensions", "3840x1240"),
-                ("types", "static"),
-                ("nsfw", "any"),
-            ],
-
-            Self::Logo | Self::Icon => {
-                &[("styles", "official"), ("types", "static"), ("nsfw", "any")]
-            }
-        }
     }
 }
 
@@ -343,14 +315,8 @@ impl SteamPaths {
 }
 
 #[must_use]
-pub fn asset_exists(app_id: u32, grid_dir: &Path, asset_type: &AssetType) -> bool {
-    let suffix = match asset_type {
-        AssetType::Grid => "p",
-        AssetType::Hero => "_hero",
-        AssetType::Logo => "_logo",
-        AssetType::Icon => "_icon",
-    };
-
+pub fn asset_exists<T: AssetKind>(app_id: u32, grid_dir: &Path) -> bool {
+    let suffix = T::suffix();
     for ext in &[".jpg", ".ico", ".png"] {
         let path = grid_dir.join(format!("{app_id}{suffix}{ext}"));
         if path.exists() {
@@ -361,14 +327,13 @@ pub fn asset_exists(app_id: u32, grid_dir: &Path, asset_type: &AssetType) -> boo
     false
 }
 
-pub async fn download_first_if_any(
+pub async fn download_first_if_any<T: AssetKind>(
     client: &SteamGridClient,
     assets: Option<&[GridAsset]>,
-    asset_type: AssetType,
     mp: Arc<MultiProgress>,
 ) -> anyhow::Result<Option<Image>> {
     if let Some(asset) = assets.and_then(|v| v.first()) {
-        Ok(Some(client.download_asset(asset, asset_type, mp).await?))
+        Ok(Some(client.download_asset::<T>(asset, mp).await?))
     } else {
         Ok(None)
     }
