@@ -1,231 +1,172 @@
-pub mod app;
 pub mod asset_kind;
+pub mod clients;
+pub mod util;
 
-use std::io;
-use std::io::Write;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use asset_kind::AssetKind;
-use bytes::BufMut;
 use bytes::Bytes;
-use bytes::BytesMut;
-use comfy_table::Table;
 use futures_util::StreamExt;
-use indicatif::MultiProgress;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
-use serde::Deserialize;
+use futures_util::TryStreamExt;
+use futures_util::stream;
+use new_vdf_parser::open_shortcuts_vdf;
+use serde_json::Value;
 use steamlocate::SteamDir;
 
-pub struct SteamGridClient {
-    client: reqwest::Client,
-    download_client: reqwest::Client,
-    base_url: String,
-}
+use crate::asset_kind::AssetKind;
+use crate::asset_kind::Grid;
+use crate::asset_kind::Hero;
+use crate::asset_kind::Icon;
+use crate::asset_kind::Logo;
+use crate::clients::SteamGridClient;
+use crate::clients::responses::Asset;
+use crate::util::asset_exists;
+use crate::util::choose_game;
+use crate::util::maybe;
 
-static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+const CONCURRENT_REQUESTS: usize = 4;
 
-impl SteamGridClient {
-    pub fn new(api_key: &str) -> anyhow::Result<Self> {
-        let mut headers = reqwest::header::HeaderMap::new();
+#[derive(clap::Parser)]
+#[command(
+    name = "steamer",
+    about = "Download SteamGridDB assets for your steam library automatically"
+)]
+pub struct Args {
+    /// Your SteamGridDB API key
+    #[arg(long)]
+    pub api_key: String,
 
-        let auth_value = format!("Bearer {api_key}");
+    /// Fetch official steam store assets
+    #[arg(long, default_value_t = false)]
+    pub official: bool,
 
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&auth_value)?,
-        );
+    /// Dry run the application without making any changes
+    #[arg(long, short, default_value_t = false)]
+    pub dry_run: bool,
 
-        let client = reqwest::ClientBuilder::new()
-            .default_headers(headers)
-            .user_agent(APP_USER_AGENT)
-            .build()?;
+    /// Interactively choose which SteamGridDB game to pick
+    #[arg(long, short, default_value_t = false)]
+    pub interactive: bool,
 
-        // Downloading assets doesn't need auth headers
-        let download_client = reqwest::ClientBuilder::new()
-            .user_agent(APP_USER_AGENT)
-            .build()?;
-
-        Ok(Self {
-            client,
-            download_client,
-            base_url: "https://www.steamgriddb.com/api/v2".to_owned(),
-        })
-    }
-
-    pub async fn search_by_name(&self, name: &str) -> anyhow::Result<Vec<GameSearchObject>> {
-        let url = format!("{}/search/autocomplete/{}", self.base_url, name);
-
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<ApiResponse<Vec<GameSearchObject>>>()
-            .await?;
-
-        Ok(response.data)
-    }
-
-    pub async fn find_asset<T: AssetKind>(&self, game_id: u64) -> anyhow::Result<Vec<Asset<T>>> {
-        let url = format!("{}{}{}", self.base_url, T::url(), game_id);
-
-        let response = self
-            .client
-            .get(&url)
-            .query(T::query_params())
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<ApiResponse<Vec<Asset<T>>>>()
-            .await?;
-
-        Ok(response.data)
-    }
-
-    pub async fn download_asset<T: AssetKind>(
-        &self,
-        asset: &Asset<T>,
-        mp: Arc<MultiProgress>,
-    ) -> anyhow::Result<Image<T>> {
-        let response = self
-            .download_client
-            .get(&asset.url)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let total = response.content_length().unwrap_or(0);
-        let pb = mp.add(
-            ProgressBar::new(total)
-                .with_message(format!("Downloading {}...", T::display_name()))
-                .with_style(ProgressStyle::with_template(
-                    "{msg:12} [{bar:40.cyan/blue}] {bytes:>7}/{total_bytes:7} {eta}",
-                )?),
-        );
-
-        let format = match asset.mime.as_str() {
-            "image/png" => ImageType::Png,
-            "image/jpeg" => ImageType::Jpg,
-            "image/vnd.microsoft.icon" => ImageType::Ico,
-            e => anyhow::bail!("Unknown mime type: {e}"),
-        };
-
-        let mut stream = response.bytes_stream();
-        let mut bytes = BytesMut::new();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            pb.inc(chunk.len() as u64);
-            bytes.put(chunk);
-        }
-
-        pb.finish();
-
-        Ok(Image {
-            bytes: bytes.freeze(),
-            format,
-            marker: PhantomData,
-        })
-    }
-
-    pub async fn find_steam_appid(&self, steamgrid_id: u64) -> anyhow::Result<Option<u64>> {
-        let url = format!("{}/games/id/{steamgrid_id}", self.base_url);
-
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("platformdata", "steam")])
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<ApiResponse<GameSearchObject>>()
-            .await?;
-
-        Ok(response
-            .data
-            .external_platform_data
-            .as_ref()
-            .and_then(|x| x.steam.first())
-            .map(|x| x.id.parse::<u64>())
-            .transpose()?)
-    }
-}
-
-#[derive(Deserialize, Debug)]
-struct ApiResponse<T> {
-    #[expect(unused)]
-    pub success: bool,
-    pub data: T,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct GameSearchObject {
-    pub id: u64,
-    pub name: String,
-    pub verified: bool,
-    pub types: Vec<String>,
-    pub release_date: Option<u64>,
-    pub external_platform_data: Option<SteamPlatformData>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct SteamPlatformData {
-    pub steam: Vec<PlatformData>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct PlatformData {
-    pub id: String,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Asset<T: AssetKind> {
-    pub id: u64,
-    pub score: i32,
-    pub style: String,
-    pub width: u32,
-    pub height: u32,
-    pub nsfw: bool,
-    pub humor: bool,
-    pub notes: Option<String>,
-    pub mime: String,
-    pub language: String,
-    pub url: String,
-    pub thumb: String,
-    pub lock: bool,
-    pub epilepsy: bool,
-    pub upvotes: u32,
-    pub downvotes: u32,
-    pub author: Author,
-
-    #[serde(skip)]
-    marker: PhantomData<T>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Author {
-    pub name: String,
-    pub steam64: String,
-    pub avatar: String,
+    /// Overwrite all existing assets and refetch them
+    #[arg(long, short, default_value_t = false)]
+    pub overwrite: bool,
 }
 
 pub struct Image<T: AssetKind> {
     bytes: Bytes,
     format: ImageType,
-
     marker: PhantomData<T>,
 }
 
-pub enum ImageType {
-    Png,
-    Jpg,
-    Webp,
-    Ico,
+pub struct ResolvedGame {
+    app_id: u32,
+    app_name: String,
+    icon_key: String,
+
+    icon: Option<Asset<Icon>>,
+    grid: Option<Asset<Grid>>,
+    hero: Option<Asset<Hero>>,
+    logo: Option<Asset<Logo>>,
+}
+
+pub struct App {
+    pub args: Args,
+
+    paths: SteamPaths,
+    client: SteamGridClient,
+    shortcuts_vdf: Value,
+}
+
+impl App {
+    pub fn build(args: Args) -> anyhow::Result<Self> {
+        let client = SteamGridClient::new(&args.api_key)?;
+
+        let steam = steamlocate::locate()?;
+        println!("Found Steam directory - {}", steam.path().display());
+
+        let paths = SteamPaths::locate(&steam)?;
+        std::fs::create_dir_all(&paths.grid)?;
+        println!("Using Grid directory - {}", paths.grid.display());
+
+        let shortcuts_vdf = open_shortcuts_vdf(&paths.shortcuts);
+
+        Ok(Self {
+            args,
+            paths,
+            client,
+            shortcuts_vdf,
+        })
+    }
+
+    pub async fn build_plan(&self) -> anyhow::Result<Vec<Plan>> {
+        let shortcuts = self
+            .shortcuts_vdf
+            .as_object()
+            .expect("shortcuts_vdf must be a json object");
+
+        println!("Found {} non-steam game(s)!\n", shortcuts.len());
+
+        let game_requests = if self.args.interactive {
+            // Build sequentially, let user choose each game
+            stream::iter(shortcuts)
+                .then(|(k, v)| self.build_request(k, v))
+                .try_collect()
+                .await?
+        } else {
+            // Build parallely, 4 at a time
+            stream::iter(shortcuts)
+                .map(|(k, v)| async move { self.build_request(k, v).await })
+                .buffer_unordered(CONCURRENT_REQUESTS)
+                .try_collect()
+                .await?
+        };
+
+        Ok(game_requests)
+    }
+
+    async fn build_request(&self, key: &str, v: &Value) -> anyhow::Result<Plan> {
+        let app_name = v["AppName"].as_str().expect("AppName key").to_string();
+        let app_id = v["appid"].as_u64().expect("appid key") as u32;
+
+        let games = self.client.search_by_name(&app_name).await?;
+
+        let Some(game) = choose_game(&games, self.args.interactive) else {
+            return Ok(Plan::NotFound(app_name));
+        };
+
+        let need_grid = self.need_asset::<Grid>(app_id);
+        let need_hero = self.need_asset::<Hero>(app_id);
+        let need_logo = self.need_asset::<Logo>(app_id);
+        let need_icon = self.need_asset::<Icon>(app_id);
+
+        if !need_icon && !need_hero && !need_logo && !need_grid {
+            return Ok(Plan::AlreadyExists(app_name));
+        }
+
+        let (grids, heroes, logos, icons) = tokio::join!(
+            maybe(need_grid, self.client.find_asset::<Grid>(game.id)),
+            maybe(need_hero, self.client.find_asset::<Hero>(game.id)),
+            maybe(need_logo, self.client.find_asset::<Logo>(game.id)),
+            maybe(need_icon, self.client.find_asset::<Icon>(game.id)),
+        );
+
+        Ok(Plan::Found(Box::new(ResolvedGame {
+            app_id,
+            app_name,
+            icon_key: key.to_owned(),
+
+            icon: icons.transpose()?.and_then(|v| v.into_iter().next()),
+            grid: grids.transpose()?.and_then(|v| v.into_iter().next()),
+            hero: heroes.transpose()?.and_then(|v| v.into_iter().next()),
+            logo: logos.transpose()?.and_then(|v| v.into_iter().next()),
+        })))
+    }
+
+    fn need_asset<T: AssetKind>(&self, app_id: u32) -> bool {
+        self.args.overwrite || !asset_exists::<T>(app_id, &self.paths.grid)
+    }
 }
 
 impl<T: AssetKind> Image<T> {
@@ -242,53 +183,6 @@ impl<T: AssetKind> Image<T> {
         std::fs::write(&path, self.bytes)?;
 
         Ok(path.display().to_string())
-    }
-}
-
-#[must_use]
-pub fn choose_game(
-    games: &'_ [GameSearchObject],
-    interactive: bool,
-) -> Option<&'_ GameSearchObject> {
-    if !interactive || games.is_empty() {
-        return games.first();
-    }
-
-    let mut table = Table::new();
-    table.set_header(vec!["#", "Name", "ID"]);
-
-    let max_choices = games.len().min(5);
-
-    // Only show the first 5 games, others are almost always irrelevant
-    (0..max_choices).for_each(|i| {
-        table.add_row(&[
-            i.to_string(),
-            games[i].name.clone(),
-            games[i].id.to_string(),
-        ]);
-    });
-
-    println!("Choose which game to pick:\n{table}");
-
-    games.get(read_choice(max_choices))
-}
-
-#[must_use]
-pub fn read_choice(max: usize) -> usize {
-    loop {
-        print!("Enter choice, (0-{}): ", max - 1);
-        io::stdout().flush().expect("io flush");
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).expect("read line");
-
-        if let Ok(n) = input.trim().parse::<usize>()
-            && n < max
-        {
-            return n;
-        }
-
-        println!("Invalid choice, try again.");
     }
 }
 
@@ -322,27 +216,15 @@ impl SteamPaths {
     }
 }
 
-#[must_use]
-pub fn asset_exists<T: AssetKind>(app_id: u32, grid_dir: &Path) -> bool {
-    let suffix = T::suffix();
-    for ext in &[".jpg", ".ico", ".png"] {
-        let path = grid_dir.join(format!("{app_id}{suffix}{ext}"));
-        if path.exists() {
-            return true;
-        }
-    }
-
-    false
+pub enum ImageType {
+    Png,
+    Jpg,
+    Webp,
+    Ico,
 }
 
-pub async fn download_first_if_any<T: AssetKind>(
-    client: &SteamGridClient,
-    assets: Option<&[Asset<T>]>,
-    mp: Arc<MultiProgress>,
-) -> anyhow::Result<Option<Image<T>>> {
-    if let Some(asset) = assets.and_then(|v| v.first()) {
-        Ok(Some(client.download_asset::<T>(asset, mp).await?))
-    } else {
-        Ok(None)
-    }
+pub enum Plan {
+    Found(Box<ResolvedGame>),
+    AlreadyExists(String),
+    NotFound(String),
 }
