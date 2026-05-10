@@ -84,13 +84,12 @@ pub struct ResolvedGame {
 }
 
 impl ResolvedGame {
-    fn into_requests(self, args: &Args) -> Vec<AssetRequest> {
+    fn into_requests(self) -> Vec<AssetRequest> {
         let mut requests = Vec::new();
 
         if let Some(asset) = self.grid {
             requests.push(AssetRequest::Grid {
                 app_id: self.app_id,
-                source: Grid::preferred_source(args.official),
                 asset,
             });
         }
@@ -98,7 +97,6 @@ impl ResolvedGame {
         if let Some(asset) = self.hero {
             requests.push(AssetRequest::Hero {
                 app_id: self.app_id,
-                source: Hero::preferred_source(args.official),
                 asset,
             });
         }
@@ -106,7 +104,6 @@ impl ResolvedGame {
         if let Some(asset) = self.logo {
             requests.push(AssetRequest::Logo {
                 app_id: self.app_id,
-                source: Logo::preferred_source(args.official),
                 asset,
             });
         }
@@ -114,16 +111,14 @@ impl ResolvedGame {
         if let Some(asset) = self.icon {
             requests.push(AssetRequest::Icon {
                 app_id: self.app_id,
-                source: Icon::preferred_source(args.official),
                 icon_key: self.icon_key,
                 asset,
             });
         }
 
         if let Some(asset) = self.head {
-            requests.push(AssetRequest::Header {
+            requests.push(AssetRequest::Head {
                 app_id: self.app_id,
-                source: Head::preferred_source(args.official),
                 asset,
             });
         }
@@ -193,7 +188,7 @@ impl App {
     pub async fn execute(mut self, games: Vec<ResolvedGame>) -> anyhow::Result<()> {
         let requests = games
             .into_iter()
-            .flat_map(|game| game.into_requests(&self.args))
+            .flat_map(ResolvedGame::into_requests)
             .collect::<Vec<_>>();
 
         if requests.is_empty() {
@@ -214,16 +209,9 @@ impl App {
 
         let icon_updates = stream::iter(requests)
             .map(|request| {
-                let grid_client = &self.grid_client;
-                let steam_client = &self.steam_client;
-                let grid_dir = self.paths.grid.as_path();
+                let app = &self;
                 let pb = &progress_bar;
-
-                async move {
-                    request
-                        .execute(grid_client, steam_client, grid_dir, pb)
-                        .await
-                }
+                async move { request.execute(app, pb).await }
             })
             .buffer_unordered(CONCURRENT_REQUESTS)
             .try_collect::<Vec<_>>()
@@ -395,122 +383,94 @@ impl Plan {
 pub enum AssetRequest {
     Grid {
         app_id: u32,
-        source: AssetSource,
         asset: Asset<Grid>,
     },
 
     Hero {
         app_id: u32,
-        source: AssetSource,
         asset: Asset<Hero>,
     },
 
     Logo {
         app_id: u32,
-        source: AssetSource,
         asset: Asset<Logo>,
     },
 
     Icon {
         app_id: u32,
-        source: AssetSource,
         icon_key: String,
         asset: Asset<Icon>,
     },
 
-    Header {
+    Head {
         app_id: u32,
-        source: AssetSource,
         asset: Asset<Head>,
     },
 }
 
 impl AssetRequest {
-    async fn execute(
-        self,
-        grid_client: &SteamGridClient,
-        steam_client: &SteamClient,
-        grid_dir: &Path,
-        pb: &ProgressBar,
-    ) -> anyhow::Result<Option<IconUpdate>> {
+    async fn execute(self, app: &App, pb: &ProgressBar) -> anyhow::Result<Option<IconUpdate>> {
         match self {
-            Self::Grid {
-                app_id,
-                source,
-                asset,
-            } => {
-                let image = match source {
-                    AssetSource::OfficialSteam => steam_client.download_asset(&asset).await?,
-                    AssetSource::SteamGridDb => grid_client.download_asset(&asset).await?,
+            Self::Grid { app_id, asset } => {
+                let image = match Grid::preferred_source(app.args.official) {
+                    AssetSource::OfficialSteam => app.steam_client.download_asset(&asset).await?,
+                    AssetSource::SteamGridDb => app.grid_client.download_asset(&asset).await?,
                 };
 
                 pb.inc(1);
-                image.save(app_id, grid_dir)?;
+                image.save(app_id, &app.paths.grid)?;
 
                 Ok(None)
             }
 
-            Self::Hero {
-                app_id,
-                source,
-                asset,
-            } => {
-                let image = match source {
-                    AssetSource::OfficialSteam => steam_client.download_asset(&asset).await?,
-                    AssetSource::SteamGridDb => grid_client.download_asset(&asset).await?,
+            Self::Hero { app_id, asset } => {
+                let image = match Hero::preferred_source(app.args.official) {
+                    AssetSource::OfficialSteam => app.steam_client.download_asset(&asset).await?,
+                    AssetSource::SteamGridDb => app.grid_client.download_asset(&asset).await?,
                 };
 
                 pb.inc(1);
-                image.save(app_id, grid_dir)?;
+                image.save(app_id, &app.paths.grid)?;
 
                 Ok(None)
             }
 
-            Self::Logo {
-                app_id,
-                source,
-                asset,
-            } => {
-                let image = match source {
-                    AssetSource::OfficialSteam => steam_client.download_asset(&asset).await?,
-                    AssetSource::SteamGridDb => grid_client.download_asset(&asset).await?,
+            Self::Logo { app_id, asset } => {
+                let image = match Logo::preferred_source(app.args.official) {
+                    AssetSource::OfficialSteam => app.steam_client.download_asset(&asset).await?,
+                    AssetSource::SteamGridDb => app.grid_client.download_asset(&asset).await?,
                 };
 
                 pb.inc(1);
-                image.save(app_id, grid_dir)?;
+                image.save(app_id, &app.paths.grid)?;
 
                 Ok(None)
             }
 
             Self::Icon {
                 app_id,
-                source,
                 icon_key: key,
                 asset,
             } => {
-                let image = match source {
-                    AssetSource::OfficialSteam => steam_client.download_asset(&asset).await?,
-                    AssetSource::SteamGridDb => grid_client.download_asset(&asset).await?,
+                let image = match Icon::preferred_source(app.args.official) {
+                    AssetSource::OfficialSteam => app.steam_client.download_asset(&asset).await?,
+                    AssetSource::SteamGridDb => app.grid_client.download_asset(&asset).await?,
                 };
 
                 pb.inc(1);
-                let path = image.save(app_id, grid_dir)?;
+                let path = image.save(app_id, &app.paths.grid)?;
 
                 Ok(Some(IconUpdate { path, key }))
             }
 
-            Self::Header {
-                app_id,
-                source,
-                asset,
-            } => {
-                let image = match source {
-                    AssetSource::OfficialSteam => steam_client.download_asset(&asset).await?,
-                    AssetSource::SteamGridDb => grid_client.download_asset(&asset).await?,
+            Self::Head { app_id, asset } => {
+                let image = match Head::preferred_source(app.args.official) {
+                    AssetSource::OfficialSteam => app.steam_client.download_asset(&asset).await?,
+                    AssetSource::SteamGridDb => app.grid_client.download_asset(&asset).await?,
                 };
 
                 pb.inc(1);
-                image.save(app_id, grid_dir)?;
+                image.save(app_id, &app.paths.grid)?;
 
                 Ok(None)
             }
