@@ -186,6 +186,12 @@ impl App {
             .flat_map(ResolvedGame::into_requests)
             .collect::<Vec<_>>();
 
+        if requests.is_empty() {
+            println!("\nNothing to do...");
+            return Ok(());
+        }
+
+        println!("\n");
         let progress_bar = ProgressBar::new(requests.len() as u64)
             .with_message("Downloading assets")
             .with_style(
@@ -213,15 +219,20 @@ impl App {
             .try_collect::<Vec<_>>()
             .await?;
 
+        let icons_updated = !icon_updates.is_empty();
         for update in icon_updates.into_iter().flatten() {
             self.shortcuts_vdf[update.key]["icon"] = Value::String(update.path);
         }
 
-        println!("Updating shortcuts.vdf with icon data...");
-        let mut vdf_to_write = Value::Object(Map::new());
-        vdf_to_write["shortcuts"] = self.shortcuts_vdf;
+        progress_bar.finish();
 
-        write_shortcuts_vdf(&self.paths.shortcuts, vdf_to_write);
+        if icons_updated {
+            println!("\n\nUpdating shortcuts.vdf with icon data...");
+            let mut vdf_to_write = Value::Object(Map::new());
+            vdf_to_write["shortcuts"] = self.shortcuts_vdf;
+            write_shortcuts_vdf(&self.paths.shortcuts, vdf_to_write);
+        }
+
         println!(
             "Done! All assets were saved at {}",
             self.paths.grid.display()

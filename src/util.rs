@@ -66,7 +66,7 @@ pub fn read_choice(max: usize) -> usize {
         if let Ok(n) = input.trim().parse::<usize>()
             && n < max
         {
-            println!("\n\n");
+            println!("\n");
             return n;
         }
 
