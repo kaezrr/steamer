@@ -22,7 +22,7 @@ pub struct GameSearchObject {
 
 #[derive(Deserialize, Debug)]
 pub struct SteamPlatformData {
-    pub steam: Vec<PlatformData>,
+    pub steam: Option<Vec<PlatformData>>,
 }
 
 #[derive(Deserialize, Debug)]

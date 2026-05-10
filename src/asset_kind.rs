@@ -2,7 +2,7 @@ pub trait AssetKind: Send + Sync {
     fn url() -> &'static str;
     fn query_params() -> &'static [(&'static str, &'static str)];
     fn filename(app_id: u32, ext: &str) -> String;
-    fn display_name() -> &'static str;
+    fn official_urls() -> &'static [&'static str];
     fn suffix() -> &'static str;
 }
 
@@ -10,6 +10,7 @@ pub struct Icon;
 pub struct Logo;
 pub struct Hero;
 pub struct Grid;
+pub struct Header;
 
 impl AssetKind for Grid {
     fn url() -> &'static str {
@@ -24,16 +25,16 @@ impl AssetKind for Grid {
         ]
     }
 
-    fn suffix() -> &'static str {
-        "p"
-    }
-
-    fn display_name() -> &'static str {
-        "Grid"
-    }
-
     fn filename(app_id: u32, ext: &str) -> String {
         format!("{app_id}p.{ext}")
+    }
+
+    fn official_urls() -> &'static [&'static str] {
+        &["library_600x900.jpg", "library_600x900_2x.jpg"]
+    }
+
+    fn suffix() -> &'static str {
+        "p"
     }
 }
 
@@ -50,16 +51,16 @@ impl AssetKind for Hero {
         ]
     }
 
-    fn suffix() -> &'static str {
-        "_hero"
-    }
-
-    fn display_name() -> &'static str {
-        "Hero"
-    }
-
     fn filename(app_id: u32, ext: &str) -> String {
         format!("{app_id}_hero.{ext}")
+    }
+
+    fn official_urls() -> &'static [&'static str] {
+        &["library_hero.jpg", "library_hero_2x.jpg"]
+    }
+
+    fn suffix() -> &'static str {
+        "_hero"
     }
 }
 
@@ -69,19 +70,19 @@ impl AssetKind for Logo {
     }
 
     fn query_params() -> &'static [(&'static str, &'static str)] {
-        &[("types", "static"), ("nsfw", "any")]
-    }
-
-    fn suffix() -> &'static str {
-        "_logo"
-    }
-
-    fn display_name() -> &'static str {
-        "Logo"
+        &[("styles", "official"), ("types", "static"), ("nsfw", "any")]
     }
 
     fn filename(app_id: u32, ext: &str) -> String {
         format!("{app_id}_logo.{ext}")
+    }
+
+    fn official_urls() -> &'static [&'static str] {
+        &["logo.png", "logo_2x.png"]
+    }
+
+    fn suffix() -> &'static str {
+        "_logo"
     }
 }
 
@@ -91,18 +92,40 @@ impl AssetKind for Icon {
     }
 
     fn query_params() -> &'static [(&'static str, &'static str)] {
-        &[("types", "static"), ("nsfw", "any")]
+        &[("styles", "official"), ("types", "static"), ("nsfw", "any")]
+    }
+
+    fn filename(app_id: u32, ext: &str) -> String {
+        format!("{app_id}_icon.{ext}")
+    }
+
+    fn official_urls() -> &'static [&'static str] {
+        &[]
     }
 
     fn suffix() -> &'static str {
         "_icon"
     }
+}
 
-    fn display_name() -> &'static str {
-        "Icon"
+impl AssetKind for Header {
+    fn url() -> &'static str {
+        ""
+    }
+
+    fn query_params() -> &'static [(&'static str, &'static str)] {
+        &[]
     }
 
     fn filename(app_id: u32, ext: &str) -> String {
-        format!("{app_id}_icon.{ext}")
+        format!("{app_id}.{ext}")
+    }
+
+    fn official_urls() -> &'static [&'static str] {
+        &["header.jpg", "header_2x.jpg"]
+    }
+
+    fn suffix() -> &'static str {
+        ""
     }
 }

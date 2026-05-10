@@ -2,6 +2,8 @@ pub mod responses;
 
 use std::marker::PhantomData;
 
+use reqwest::StatusCode;
+
 use crate::Image;
 use crate::ImageType;
 use crate::asset_kind::AssetKind;
@@ -115,8 +117,73 @@ impl SteamGridClient {
             .data
             .external_platform_data
             .as_ref()
-            .and_then(|x| x.steam.first())
+            .and_then(|x| x.steam.as_ref().and_then(|x| x.first()))
             .map(|x| x.id.parse::<u64>())
             .transpose()?)
+    }
+}
+
+pub struct SteamClient {
+    client: reqwest::Client,
+}
+
+impl SteamClient {
+    // Need to retry all these urls for steam assets
+    const BASE_URLS: [&str; 6] = [
+        "https://shared.steamstatic.com/store_item_assets",
+        "https://shared.fastly.steamstatic.com/store_item_assets",
+        "https://cdn.steamstatic.com",
+        "https://cdn.akamai.steamstatic.com",
+        "https://cdn.fastly.steamstatic.com",
+        "https://cdn.cloudflare.steamstatic.com",
+    ];
+
+    pub fn new() -> anyhow::Result<Self> {
+        let client = reqwest::ClientBuilder::new()
+            .user_agent(APP_USER_AGENT)
+            .build()?;
+
+        Ok(Self { client })
+    }
+
+    /// Official Steam assets may not exist at all, so try all known URLs.
+    pub async fn find_asset<T: AssetKind>(&self, steam_appid: u64) -> Option<String> {
+        for base_url in Self::BASE_URLS {
+            for asset_path in T::official_urls() {
+                let url = format!("{base_url}/steam/apps/{steam_appid}/{asset_path}");
+
+                let Ok(response) = self.client.head(&url).send().await else {
+                    continue;
+                };
+
+                if response.status() == StatusCode::OK {
+                    return Some(url);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub async fn download_asset<T: AssetKind>(&self, url: &str) -> anyhow::Result<Image<T>> {
+        let response = self.client.get(url).send().await?.error_for_status()?;
+
+        let mime = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok());
+
+        let format = match mime {
+            Some("image/png") => ImageType::Png,
+            Some("image/jpeg") => ImageType::Jpg,
+            Some(e) => anyhow::bail!("Unknown mime type: {e}"),
+            None => anyhow::bail!("No mime type found"),
+        };
+
+        Ok(Image {
+            bytes: response.bytes().await?,
+            format,
+            marker: PhantomData,
+        })
     }
 }

@@ -80,7 +80,7 @@ pub fn print_plan(plans: &[Plan]) {
     table
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(vec!["Game", "Grid", "Hero", "Logo", "Icon"]);
+        .set_header(vec!["Game", "Grid", "Hero", "Logo", "Icon", "Header"]);
 
     let mut already_exists = Vec::new();
     let mut not_found = Vec::new();
@@ -96,6 +96,7 @@ pub fn print_plan(plans: &[Plan]) {
                     Cell::new(asset(req.hero.is_some())),
                     Cell::new(asset(req.logo.is_some())),
                     Cell::new(asset(req.icon.is_some())),
+                    Cell::new(asset(req.header.is_some())),
                 ]);
             }
 

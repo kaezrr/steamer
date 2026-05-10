@@ -20,9 +20,11 @@ use steamlocate::SteamDir;
 
 use crate::asset_kind::AssetKind;
 use crate::asset_kind::Grid;
+use crate::asset_kind::Header;
 use crate::asset_kind::Hero;
 use crate::asset_kind::Icon;
 use crate::asset_kind::Logo;
+use crate::clients::SteamClient;
 use crate::clients::SteamGridClient;
 use crate::clients::responses::Asset;
 use crate::util::asset_exists;
@@ -73,6 +75,7 @@ pub struct ResolvedGame {
     grid: Option<Asset<Grid>>,
     hero: Option<Asset<Hero>>,
     logo: Option<Asset<Logo>>,
+    header: Option<String>,
 }
 
 impl ResolvedGame {
@@ -108,6 +111,13 @@ impl ResolvedGame {
             });
         }
 
+        if let Some(asset) = self.header {
+            requests.push(AssetRequest::Header {
+                app_id: self.app_id,
+                asset,
+            });
+        }
+
         requests
     }
 }
@@ -116,13 +126,15 @@ pub struct App {
     pub args: Args,
 
     paths: SteamPaths,
-    client: SteamGridClient,
+    grid_client: SteamGridClient,
+    steam_client: SteamClient,
     shortcuts_vdf: Value,
 }
 
 impl App {
     pub fn build(args: Args) -> anyhow::Result<Self> {
-        let client = SteamGridClient::new(&args.api_key)?;
+        let grid_client = SteamGridClient::new(&args.api_key)?;
+        let steam_client = SteamClient::new()?;
 
         let steam = steamlocate::locate()?;
         println!("Found Steam directory - {}", steam.path().display());
@@ -136,7 +148,8 @@ impl App {
         Ok(Self {
             args,
             paths,
-            client,
+            grid_client,
+            steam_client,
             shortcuts_vdf,
         })
     }
@@ -185,11 +198,16 @@ impl App {
 
         let icon_updates = stream::iter(requests)
             .map(|request| {
-                let client = &self.client;
+                let grid_client = &self.grid_client;
+                let steam_client = &self.steam_client;
                 let grid_dir = self.paths.grid.as_path();
                 let pb = &progress_bar;
 
-                async move { request.execute(client, grid_dir, pb).await }
+                async move {
+                    request
+                        .execute(grid_client, steam_client, grid_dir, pb)
+                        .await
+                }
             })
             .buffer_unordered(CONCURRENT_REQUESTS)
             .try_collect::<Vec<_>>()
@@ -216,27 +234,39 @@ impl App {
         let app_name = v["AppName"].as_str().expect("AppName key").to_string();
         let app_id = v["appid"].as_u64().expect("appid key") as u32;
 
-        let games = self.client.search_by_name(&app_name).await?;
+        let games = self.grid_client.search_by_name(&app_name).await?;
 
         let Some(game) = choose_game(&games, self.args.interactive) else {
             return Ok(Plan::NotFound(app_name));
         };
+
+        let steam_appid = self.grid_client.find_steam_appid(game.id).await?;
 
         let need_grid = self.need_asset::<Grid>(app_id);
         let need_hero = self.need_asset::<Hero>(app_id);
         let need_logo = self.need_asset::<Logo>(app_id);
         let need_icon = self.need_asset::<Icon>(app_id);
 
-        if !need_icon && !need_hero && !need_logo && !need_grid {
+        let need_header = self.need_asset::<Header>(app_id);
+
+        if !need_icon && !need_hero && !need_logo && !need_grid && !need_header {
             return Ok(Plan::AlreadyExists(app_name));
         }
 
         let (grids, heroes, logos, icons) = tokio::join!(
-            maybe(need_grid, self.client.find_asset::<Grid>(game.id)),
-            maybe(need_hero, self.client.find_asset::<Hero>(game.id)),
-            maybe(need_logo, self.client.find_asset::<Logo>(game.id)),
-            maybe(need_icon, self.client.find_asset::<Icon>(game.id)),
+            maybe(need_grid, self.grid_client.find_asset::<Grid>(game.id)),
+            maybe(need_hero, self.grid_client.find_asset::<Hero>(game.id)),
+            maybe(need_logo, self.grid_client.find_asset::<Logo>(game.id)),
+            maybe(need_icon, self.grid_client.find_asset::<Icon>(game.id)),
         );
+
+        let header = if let Some(app_id) = steam_appid
+            && need_header
+        {
+            self.steam_client.find_asset::<Header>(app_id).await
+        } else {
+            None
+        };
 
         Ok(Plan::Found(Box::new(ResolvedGame {
             app_id,
@@ -247,6 +277,8 @@ impl App {
             grid: grids.transpose()?.and_then(|v| v.into_iter().next()),
             hero: heroes.transpose()?.and_then(|v| v.into_iter().next()),
             logo: logos.transpose()?.and_then(|v| v.into_iter().next()),
+
+            header,
         })))
     }
 
@@ -346,18 +378,24 @@ pub enum AssetRequest {
         icon_key: String,
         asset: Asset<Icon>,
     },
+
+    Header {
+        app_id: u32,
+        asset: String,
+    },
 }
 
 impl AssetRequest {
     async fn execute(
         self,
-        client: &SteamGridClient,
+        grid_client: &SteamGridClient,
+        steam_client: &SteamClient,
         grid_dir: &Path,
         pb: &ProgressBar,
     ) -> anyhow::Result<Option<IconUpdate>> {
         match self {
             Self::Grid { app_id, asset } => {
-                let image = client.download_asset(&asset).await?;
+                let image = grid_client.download_asset(&asset).await?;
                 pb.inc(1);
                 image.save(app_id, grid_dir)?;
 
@@ -365,7 +403,7 @@ impl AssetRequest {
             }
 
             Self::Hero { app_id, asset } => {
-                let image = client.download_asset(&asset).await?;
+                let image = grid_client.download_asset(&asset).await?;
                 pb.inc(1);
                 image.save(app_id, grid_dir)?;
 
@@ -373,7 +411,7 @@ impl AssetRequest {
             }
 
             Self::Logo { app_id, asset } => {
-                let image = client.download_asset(&asset).await?;
+                let image = grid_client.download_asset(&asset).await?;
                 pb.inc(1);
                 image.save(app_id, grid_dir)?;
 
@@ -385,11 +423,19 @@ impl AssetRequest {
                 icon_key: key,
                 asset,
             } => {
-                let image = client.download_asset(&asset).await?;
+                let image = grid_client.download_asset(&asset).await?;
                 pb.inc(1);
                 let path = image.save(app_id, grid_dir)?;
 
                 Ok(Some(IconUpdate { path, key }))
+            }
+
+            Self::Header { app_id, asset } => {
+                let image = steam_client.download_asset::<Header>(&asset).await?;
+                pb.inc(1);
+                image.save(app_id, grid_dir)?;
+
+                Ok(None)
             }
         }
     }
