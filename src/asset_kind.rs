@@ -1,16 +1,23 @@
+#[derive(Clone, Copy)]
+pub enum AssetSource {
+    OfficialSteam,
+    SteamGridDb,
+}
+
 pub trait AssetKind: Send + Sync {
     fn url() -> &'static str;
     fn query_params() -> &'static [(&'static str, &'static str)];
     fn filename(app_id: u32, ext: &str) -> String;
     fn official_urls() -> &'static [&'static str];
     fn suffix() -> &'static str;
+    fn preferred_source(offical: bool) -> AssetSource;
 }
 
 pub struct Icon;
 pub struct Logo;
 pub struct Hero;
 pub struct Grid;
-pub struct Header;
+pub struct Head;
 
 impl AssetKind for Grid {
     fn url() -> &'static str {
@@ -35,6 +42,14 @@ impl AssetKind for Grid {
 
     fn suffix() -> &'static str {
         "p"
+    }
+
+    fn preferred_source(offical: bool) -> AssetSource {
+        if offical {
+            AssetSource::OfficialSteam
+        } else {
+            AssetSource::SteamGridDb
+        }
     }
 }
 
@@ -62,6 +77,14 @@ impl AssetKind for Hero {
     fn suffix() -> &'static str {
         "_hero"
     }
+
+    fn preferred_source(offical: bool) -> AssetSource {
+        if offical {
+            AssetSource::OfficialSteam
+        } else {
+            AssetSource::SteamGridDb
+        }
+    }
 }
 
 impl AssetKind for Logo {
@@ -83,6 +106,14 @@ impl AssetKind for Logo {
 
     fn suffix() -> &'static str {
         "_logo"
+    }
+
+    fn preferred_source(offical: bool) -> AssetSource {
+        if offical {
+            AssetSource::OfficialSteam
+        } else {
+            AssetSource::SteamGridDb
+        }
     }
 }
 
@@ -106,9 +137,13 @@ impl AssetKind for Icon {
     fn suffix() -> &'static str {
         "_icon"
     }
+
+    fn preferred_source(_offical: bool) -> AssetSource {
+        AssetSource::SteamGridDb
+    }
 }
 
-impl AssetKind for Header {
+impl AssetKind for Head {
     fn url() -> &'static str {
         ""
     }
@@ -127,5 +162,9 @@ impl AssetKind for Header {
 
     fn suffix() -> &'static str {
         ""
+    }
+
+    fn preferred_source(_offical: bool) -> AssetSource {
+        AssetSource::OfficialSteam
     }
 }

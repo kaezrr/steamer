@@ -96,7 +96,7 @@ pub fn print_plan(plans: &[Plan]) {
                     Cell::new(asset(req.hero.is_some())),
                     Cell::new(asset(req.logo.is_some())),
                     Cell::new(asset(req.icon.is_some())),
-                    Cell::new(asset(req.header.is_some())),
+                    Cell::new(asset(req.head.is_some())),
                 ]);
             }
 
@@ -131,8 +131,11 @@ pub fn print_plan(plans: &[Plan]) {
     }
 }
 
-pub async fn maybe<T>(cond: bool, fut: impl Future<Output = T>) -> Option<T> {
-    if cond { Some(fut.await) } else { None }
+pub async fn maybe<T>(
+    cond: bool,
+    fut: impl Future<Output = anyhow::Result<Option<T>>>,
+) -> anyhow::Result<Option<T>> {
+    if cond { fut.await } else { Ok(None) }
 }
 
 #[must_use]
@@ -148,4 +151,53 @@ pub fn create_pb(mp: &MultiProgress, name: &str, kind: &str) -> ProgressBar {
                 .progress_chars("=> "),
             ),
     )
+}
+
+use std::fs;
+
+pub fn clean_dir(path: &Path) -> anyhow::Result<()> {
+    let mut deleted_files = 0u64;
+    let mut deleted_bytes = 0u64;
+
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+
+        let metadata = entry.metadata()?;
+
+        deleted_bytes += metadata.len();
+        deleted_files += 1;
+
+        fs::remove_file(path)?;
+    }
+
+    println!(
+        "\nDeleted {} file(s), freed {}",
+        deleted_files,
+        human_bytes(deleted_bytes),
+    );
+
+    Ok(())
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+
+    let b = bytes as f64;
+
+    if b >= GB {
+        format!("{:.2} GB", b / GB)
+    } else if b >= MB {
+        format!("{:.2} MB", b / MB)
+    } else if b >= KB {
+        format!("{:.2} KB", b / KB)
+    } else {
+        format!("{bytes} B")
+    }
 }
