@@ -1,3 +1,4 @@
+pub mod app;
 pub mod asset_kind;
 
 use std::io;
@@ -70,10 +71,7 @@ impl SteamGridClient {
         Ok(response.data)
     }
 
-    pub async fn find_asset<T: AssetKind>(
-        &self,
-        game_id: u64,
-    ) -> anyhow::Result<Vec<GridAsset<T>>> {
+    pub async fn find_asset<T: AssetKind>(&self, game_id: u64) -> anyhow::Result<Vec<Asset<T>>> {
         let url = format!("{}{}{}", self.base_url, T::url(), game_id);
 
         let response = self
@@ -83,7 +81,7 @@ impl SteamGridClient {
             .send()
             .await?
             .error_for_status()?
-            .json::<ApiResponse<Vec<GridAsset<T>>>>()
+            .json::<ApiResponse<Vec<Asset<T>>>>()
             .await?;
 
         Ok(response.data)
@@ -91,7 +89,7 @@ impl SteamGridClient {
 
     pub async fn download_asset<T: AssetKind>(
         &self,
-        asset: &GridAsset<T>,
+        asset: &Asset<T>,
         mp: Arc<MultiProgress>,
     ) -> anyhow::Result<Image<T>> {
         let response = self
@@ -186,7 +184,7 @@ pub struct PlatformData {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct GridAsset<T: AssetKind> {
+pub struct Asset<T: AssetKind> {
     pub id: u64,
     pub score: i32,
     pub style: String,
@@ -219,6 +217,7 @@ pub struct Author {
 pub struct Image<T: AssetKind> {
     bytes: Bytes,
     format: ImageType,
+
     marker: PhantomData<T>,
 }
 
@@ -338,7 +337,7 @@ pub fn asset_exists<T: AssetKind>(app_id: u32, grid_dir: &Path) -> bool {
 
 pub async fn download_first_if_any<T: AssetKind>(
     client: &SteamGridClient,
-    assets: Option<&[GridAsset<T>]>,
+    assets: Option<&[Asset<T>]>,
     mp: Arc<MultiProgress>,
 ) -> anyhow::Result<Option<Image<T>>> {
     if let Some(asset) = assets.and_then(|v| v.first()) {
