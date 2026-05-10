@@ -5,6 +5,9 @@ use comfy_table::Cell;
 use comfy_table::ContentArrangement;
 use comfy_table::Table;
 use comfy_table::presets::UTF8_FULL;
+use indicatif::MultiProgress;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 
 use crate::Plan;
 use crate::asset_kind::AssetKind;
@@ -85,7 +88,7 @@ pub fn print_plan(plans: &[Plan]) {
     for plan in plans {
         match plan {
             Plan::Found(req) => {
-                let asset = |v: bool| if v { "✓" } else { "✗" };
+                let asset = |v: bool| if v { "Y" } else { "N" };
 
                 table.add_row(vec![
                     Cell::new(&req.app_name),
@@ -129,4 +132,19 @@ pub fn print_plan(plans: &[Plan]) {
 
 pub async fn maybe<T>(cond: bool, fut: impl Future<Output = T>) -> Option<T> {
     if cond { Some(fut.await) } else { None }
+}
+
+#[must_use]
+pub fn create_pb(mp: &MultiProgress, name: &str, kind: &str) -> ProgressBar {
+    mp.add(
+        ProgressBar::new(0)
+            .with_message(format!("{name} ({kind})"))
+            .with_style(
+                ProgressStyle::with_template(
+                    "{spinner:.green} {msg:<30!} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes}",
+                )
+                .expect("set pb style")
+                .progress_chars("=> "),
+            ),
+    )
 }

@@ -24,6 +24,8 @@ Usage: steamer [OPTIONS] --api-key <API_KEY>
 
 Options:
       --api-key <API_KEY>  Your SteamGridDB API key
+      --official           Fetch official steam store assets
+  -d, --dry-run            Dry run the application without making any changes
   -i, --interactive        Interactively choose which SteamGridDB game to pick
   -o, --overwrite          Overwrite all existing assets and refetch them
   -h, --help               Print help
@@ -37,4 +39,4 @@ By default it always picks the first match for icons, heroes, grids and logos.
 - ~Add the option to preserve existing steamgrid assets instead of always overwriting~
 - Add configuration file to save api key and other configuration options for covers, heroes, etc
 - Integrate OS file events and add a `--watch` so that it runs automatically in the background efficiently
-- Possible further parallelization improvements to make it work even faster
+- ~Possible further parallelization improvements to make it work even faster~

@@ -1,6 +1,7 @@
 use clap::Parser;
 use steamer::App;
 use steamer::Args;
+use steamer::Plan;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,5 +15,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    Ok(())
+    let requests = plan
+        .into_iter()
+        .filter_map(Plan::into_resolved_game)
+        .collect();
+
+    app.execute(requests).await
 }

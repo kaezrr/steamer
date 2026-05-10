@@ -10,7 +10,11 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use futures_util::TryStreamExt;
 use futures_util::stream;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use new_vdf_parser::open_shortcuts_vdf;
+use new_vdf_parser::write_shortcuts_vdf;
+use serde_json::Map;
 use serde_json::Value;
 use steamlocate::SteamDir;
 
@@ -71,6 +75,43 @@ pub struct ResolvedGame {
     logo: Option<Asset<Logo>>,
 }
 
+impl ResolvedGame {
+    fn into_requests(self) -> Vec<AssetRequest> {
+        let mut requests = Vec::new();
+
+        if let Some(asset) = self.grid {
+            requests.push(AssetRequest::Grid {
+                app_id: self.app_id,
+                asset,
+            });
+        }
+
+        if let Some(asset) = self.hero {
+            requests.push(AssetRequest::Hero {
+                app_id: self.app_id,
+                asset,
+            });
+        }
+
+        if let Some(asset) = self.logo {
+            requests.push(AssetRequest::Logo {
+                app_id: self.app_id,
+                asset,
+            });
+        }
+
+        if let Some(asset) = self.icon {
+            requests.push(AssetRequest::Icon {
+                app_id: self.app_id,
+                icon_key: self.icon_key,
+                asset,
+            });
+        }
+
+        requests
+    }
+}
+
 pub struct App {
     pub args: Args,
 
@@ -117,13 +158,58 @@ impl App {
         } else {
             // Build parallely, 4 at a time
             stream::iter(shortcuts)
-                .map(|(k, v)| async move { self.build_request(k, v).await })
+                .map(|(k, v)| self.build_request(k, v))
                 .buffer_unordered(CONCURRENT_REQUESTS)
                 .try_collect()
                 .await?
         };
 
         Ok(game_requests)
+    }
+
+    pub async fn execute(mut self, games: Vec<ResolvedGame>) -> anyhow::Result<()> {
+        let requests = games
+            .into_iter()
+            .flat_map(ResolvedGame::into_requests)
+            .collect::<Vec<_>>();
+
+        let progress_bar = ProgressBar::new(requests.len() as u64)
+            .with_message("Downloading assets")
+            .with_style(
+                ProgressStyle::with_template(
+                    "{spinner:.green} {msg:<24} [{bar:40.cyan/blue}] {pos}/{len}",
+                )
+                .expect("set progress bar style")
+                .progress_chars("=> "),
+            );
+
+        let icon_updates = stream::iter(requests)
+            .map(|request| {
+                let client = &self.client;
+                let grid_dir = self.paths.grid.as_path();
+                let pb = &progress_bar;
+
+                async move { request.execute(client, grid_dir, pb).await }
+            })
+            .buffer_unordered(CONCURRENT_REQUESTS)
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        for update in icon_updates.into_iter().flatten() {
+            self.shortcuts_vdf[update.key]["icon"] = Value::String(update.path);
+        }
+
+        println!("Updating shortcuts.vdf with icon data...");
+        let mut vdf_to_write = Value::Object(Map::new());
+        vdf_to_write["shortcuts"] = self.shortcuts_vdf;
+
+        write_shortcuts_vdf(&self.paths.shortcuts, vdf_to_write);
+        println!(
+            "Done! All assets were saved at {}",
+            self.paths.grid.display()
+        );
+
+        Ok(())
     }
 
     async fn build_request(&self, key: &str, v: &Value) -> anyhow::Result<Plan> {
@@ -227,4 +313,89 @@ pub enum Plan {
     Found(Box<ResolvedGame>),
     AlreadyExists(String),
     NotFound(String),
+}
+
+impl Plan {
+    #[must_use]
+    pub fn into_resolved_game(self) -> Option<ResolvedGame> {
+        match self {
+            Self::Found(req) => Some(*req),
+            Self::AlreadyExists(_) | Self::NotFound(_) => None,
+        }
+    }
+}
+
+pub enum AssetRequest {
+    Grid {
+        app_id: u32,
+        asset: Asset<Grid>,
+    },
+
+    Hero {
+        app_id: u32,
+        asset: Asset<Hero>,
+    },
+
+    Logo {
+        app_id: u32,
+        asset: Asset<Logo>,
+    },
+
+    Icon {
+        app_id: u32,
+        icon_key: String,
+        asset: Asset<Icon>,
+    },
+}
+
+impl AssetRequest {
+    async fn execute(
+        self,
+        client: &SteamGridClient,
+        grid_dir: &Path,
+        pb: &ProgressBar,
+    ) -> anyhow::Result<Option<IconUpdate>> {
+        match self {
+            Self::Grid { app_id, asset } => {
+                let image = client.download_asset(&asset).await?;
+                pb.inc(1);
+                image.save(app_id, grid_dir)?;
+
+                Ok(None)
+            }
+
+            Self::Hero { app_id, asset } => {
+                let image = client.download_asset(&asset).await?;
+                pb.inc(1);
+                image.save(app_id, grid_dir)?;
+
+                Ok(None)
+            }
+
+            Self::Logo { app_id, asset } => {
+                let image = client.download_asset(&asset).await?;
+                pb.inc(1);
+                image.save(app_id, grid_dir)?;
+
+                Ok(None)
+            }
+
+            Self::Icon {
+                app_id,
+                icon_key: key,
+                asset,
+            } => {
+                let image = client.download_asset(&asset).await?;
+                pb.inc(1);
+                let path = image.save(app_id, grid_dir)?;
+
+                Ok(Some(IconUpdate { path, key }))
+            }
+        }
+    }
+}
+
+struct IconUpdate {
+    path: String,
+    key: String,
 }

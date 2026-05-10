@@ -1,14 +1,6 @@
 pub mod responses;
 
 use std::marker::PhantomData;
-use std::sync::Arc;
-
-use bytes::BufMut;
-use bytes::BytesMut;
-use futures_util::StreamExt;
-use indicatif::MultiProgress;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
 
 use crate::Image;
 use crate::ImageType;
@@ -84,26 +76,13 @@ impl SteamGridClient {
         Ok(response.data)
     }
 
-    pub async fn download_asset<T: AssetKind>(
-        &self,
-        asset: &Asset<T>,
-        mp: Arc<MultiProgress>,
-    ) -> anyhow::Result<Image<T>> {
+    pub async fn download_asset<T: AssetKind>(&self, asset: &Asset<T>) -> anyhow::Result<Image<T>> {
         let response = self
             .download_client
             .get(&asset.url)
             .send()
             .await?
             .error_for_status()?;
-
-        let total = response.content_length().unwrap_or(0);
-        let pb = mp.add(
-            ProgressBar::new(total)
-                .with_message(format!("Downloading {}...", T::display_name()))
-                .with_style(ProgressStyle::with_template(
-                    "{msg:12} [{bar:40.cyan/blue}] {bytes:>7}/{total_bytes:7} {eta}",
-                )?),
-        );
 
         let format = match asset.mime.as_str() {
             "image/png" => ImageType::Png,
@@ -112,19 +91,8 @@ impl SteamGridClient {
             e => anyhow::bail!("Unknown mime type: {e}"),
         };
 
-        let mut stream = response.bytes_stream();
-        let mut bytes = BytesMut::new();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            pb.inc(chunk.len() as u64);
-            bytes.put(chunk);
-        }
-
-        pb.finish();
-
         Ok(Image {
-            bytes: bytes.freeze(),
+            bytes: response.bytes().await?,
             format,
             marker: PhantomData,
         })
