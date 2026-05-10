@@ -1,6 +1,7 @@
 # steamer
 
 A CLI-tool to automatically fetch and download SteamGridDB assets for your non-steam games.  
+Also supports fetching official steam store assets with the `--official` flag.  
 Downloads missing icon, grid, hero and logo for each game. Will preserve existing assets by default but can be overridden by the `--overwrite` flag.
 
 Tested on linux, other platforms untested but should work.
@@ -28,6 +29,7 @@ Options:
   -d, --dry-run            Dry run the application without making any changes
   -i, --interactive        Interactively choose which SteamGridDB game to pick
   -o, --overwrite          Overwrite all existing assets and refetch them
+  -c, --clean              Clean the grid directory of all assets
   -h, --help               Print help
 ```
 
