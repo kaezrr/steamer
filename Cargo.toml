@@ -1,6 +1,6 @@
 [package]
 name = "steamer"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 description = "A CLI tool to automate adding steamgrid assets to your steam library"
 readme = "README.md"
