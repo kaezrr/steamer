@@ -178,11 +178,9 @@ impl App {
             let progress_bar = ProgressBar::new(shortcuts.len() as u64)
                 .with_message("Processing shortcuts...")
                 .with_style(
-                    ProgressStyle::with_template(
-                        "{spinner:.green} {msg:<24} [{bar:40.cyan/blue}] {pos}/{len}",
-                    )
-                    .expect("set progress bar style")
-                    .progress_chars("=> "),
+                    ProgressStyle::with_template("{msg:<24} [{bar:40.cyan/blue}] {pos}/{len}")
+                        .expect("set progress bar style")
+                        .progress_chars("=> "),
                 );
 
             let plans = stream::iter(shortcuts)
@@ -214,11 +212,9 @@ impl App {
         let progress_bar = ProgressBar::new(requests.len() as u64)
             .with_message("Downloading assets")
             .with_style(
-                ProgressStyle::with_template(
-                    "{spinner:.green} {msg:<24} [{bar:40.cyan/blue}] {pos}/{len}",
-                )
-                .expect("set progress bar style")
-                .progress_chars("=> "),
+                ProgressStyle::with_template("{msg:<24} [{bar:40.cyan/blue}] {pos}/{len}")
+                    .expect("set progress bar style")
+                    .progress_chars("=> "),
             );
 
         let icon_updates = stream::iter(requests)
@@ -288,7 +284,9 @@ impl App {
             maybe(need_head, self.fetch_asset::<Head>(game.id, steam_appid)),
         );
 
-        pb.map(|pb| pb.inc(1));
+        if let Some(pb) = pb {
+            pb.inc(1);
+        }
 
         Ok(Plan::Found(Box::new(ResolvedGame {
             app_id,
@@ -332,12 +330,25 @@ impl App {
 }
 
 impl<T: AssetKind> Image<T> {
-    pub fn save(self, app_id: u32, dir: &Path) -> std::io::Result<String> {
+    pub fn save(self, app_id: u32, dir: &Path, overwrite: bool) -> std::io::Result<String> {
         let ext = match self.format {
             ImageType::Jpg => "jpg",
-            ImageType::Png | ImageType::Webp => "png", // Webp saves as png
+            ImageType::Png | ImageType::Webp => "png",
             ImageType::Ico => "ico",
         };
+
+        if overwrite {
+            for old_ext in ["png", "jpg", "ico"] {
+                let old_filename = T::filename(app_id, old_ext);
+                let old_path = dir.join(old_filename);
+
+                match std::fs::remove_file(&old_path) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e),
+                }
+            }
+        }
 
         let filename = T::filename(app_id, ext);
         let path = dir.join(&filename);
@@ -439,7 +450,7 @@ impl AssetRequest {
                 };
 
                 pb.inc(1);
-                image.save(app_id, &app.paths.grid)?;
+                image.save(app_id, &app.paths.grid, app.args.overwrite)?;
 
                 Ok(None)
             }
@@ -451,7 +462,7 @@ impl AssetRequest {
                 };
 
                 pb.inc(1);
-                image.save(app_id, &app.paths.grid)?;
+                image.save(app_id, &app.paths.grid, app.args.overwrite)?;
 
                 Ok(None)
             }
@@ -463,7 +474,7 @@ impl AssetRequest {
                 };
 
                 pb.inc(1);
-                image.save(app_id, &app.paths.grid)?;
+                image.save(app_id, &app.paths.grid, app.args.overwrite)?;
 
                 Ok(None)
             }
@@ -479,7 +490,7 @@ impl AssetRequest {
                 };
 
                 pb.inc(1);
-                let path = image.save(app_id, &app.paths.grid)?;
+                let path = image.save(app_id, &app.paths.grid, app.args.overwrite)?;
 
                 Ok(Some(IconUpdate { path, key }))
             }
@@ -491,7 +502,7 @@ impl AssetRequest {
                 };
 
                 pb.inc(1);
-                image.save(app_id, &app.paths.grid)?;
+                image.save(app_id, &app.paths.grid, app.args.overwrite)?;
 
                 Ok(None)
             }
