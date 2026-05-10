@@ -111,7 +111,7 @@ pub fn print_plan(plans: &[Plan]) {
     }
 
     if table.row_count() > 0 {
-        println!("Assets To Download:\n{table}");
+        println!("\n\nAssets To Download:\n{table}");
     }
 
     if !already_exists.is_empty() {

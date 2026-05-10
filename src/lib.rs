@@ -170,16 +170,30 @@ impl App {
         let game_requests = if self.args.interactive {
             // Build sequentially, let user choose each game
             stream::iter(shortcuts)
-                .then(|(k, v)| self.build_request(k, v))
+                .then(|(k, v)| self.build_request(k, v, None))
                 .try_collect()
                 .await?
         } else {
             // Build parallely, 4 at a time
-            stream::iter(shortcuts)
-                .map(|(k, v)| self.build_request(k, v))
+            let progress_bar = ProgressBar::new(shortcuts.len() as u64)
+                .with_message("Processing shortcuts...")
+                .with_style(
+                    ProgressStyle::with_template(
+                        "{spinner:.green} {msg:<24} [{bar:40.cyan/blue}] {pos}/{len}",
+                    )
+                    .expect("set progress bar style")
+                    .progress_chars("=> "),
+                );
+
+            let plans = stream::iter(shortcuts)
+                .map(|(k, v)| self.build_request(k, v, Some(&progress_bar)))
                 .buffer_unordered(CONCURRENT_REQUESTS)
                 .try_collect()
-                .await?
+                .await?;
+
+            progress_bar.finish();
+
+            plans
         };
 
         Ok(game_requests)
@@ -239,7 +253,12 @@ impl App {
         Ok(())
     }
 
-    async fn build_request(&self, key: &str, v: &Value) -> anyhow::Result<Plan> {
+    async fn build_request(
+        &self,
+        key: &str,
+        v: &Value,
+        pb: Option<&ProgressBar>,
+    ) -> anyhow::Result<Plan> {
         let app_name = v["AppName"].as_str().expect("AppName key").to_string();
         let app_id = v["appid"].as_u64().expect("appid key") as u32;
 
@@ -268,6 +287,8 @@ impl App {
             maybe(need_icon, self.fetch_asset::<Icon>(game.id, steam_appid)),
             maybe(need_head, self.fetch_asset::<Head>(game.id, steam_appid)),
         );
+
+        pb.map(|pb| pb.inc(1));
 
         Ok(Plan::Found(Box::new(ResolvedGame {
             app_id,
