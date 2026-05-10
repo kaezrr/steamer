@@ -147,7 +147,7 @@ impl SteamClient {
     }
 
     /// Official Steam assets may not exist at all, so try all known URLs.
-    pub async fn find_asset<T: AssetKind>(&self, steam_appid: u64) -> Option<String> {
+    pub async fn find_asset<T: AssetKind>(&self, steam_appid: u64) -> Option<Asset<T>> {
         for base_url in Self::BASE_URLS {
             for asset_path in T::official_urls() {
                 let url = format!("{base_url}/steam/apps/{steam_appid}/{asset_path}");
@@ -156,28 +156,39 @@ impl SteamClient {
                     continue;
                 };
 
-                if response.status() == StatusCode::OK {
-                    return Some(url);
+                if response.status() != StatusCode::OK {
+                    continue;
                 }
+
+                let Some(mime) = response
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(ToOwned::to_owned)
+                else {
+                    continue;
+                };
+
+                return Some(Asset::stubbed_official(mime, url));
             }
         }
 
         None
     }
 
-    pub async fn download_asset<T: AssetKind>(&self, url: &str) -> anyhow::Result<Image<T>> {
-        let response = self.client.get(url).send().await?.error_for_status()?;
+    pub async fn download_asset<T: AssetKind>(&self, asset: &Asset<T>) -> anyhow::Result<Image<T>> {
+        let response = self
+            .client
+            .get(&asset.url)
+            .send()
+            .await?
+            .error_for_status()?;
 
-        let mime = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok());
-
-        let format = match mime {
-            Some("image/png") => ImageType::Png,
-            Some("image/jpeg") => ImageType::Jpg,
-            Some(e) => anyhow::bail!("Unknown mime type: {e}"),
-            None => anyhow::bail!("No mime type found"),
+        let format = match asset.mime.as_str() {
+            "image/png" => ImageType::Png,
+            "image/jpeg" => ImageType::Jpg,
+            "image/vnd.microsoft.icon" => ImageType::Ico,
+            e => anyhow::bail!("Unknown mime type: {e}"),
         };
 
         Ok(Image {

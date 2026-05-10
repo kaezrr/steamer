@@ -75,7 +75,7 @@ pub struct ResolvedGame {
     grid: Option<Asset<Grid>>,
     hero: Option<Asset<Hero>>,
     logo: Option<Asset<Logo>>,
-    header: Option<String>,
+    header: Option<Asset<Header>>,
 }
 
 impl ResolvedGame {
@@ -392,7 +392,7 @@ pub enum AssetRequest {
 
     Header {
         app_id: u32,
-        asset: String,
+        asset: Asset<Header>,
     },
 }
 
