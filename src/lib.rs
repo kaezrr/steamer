@@ -255,7 +255,10 @@ impl App {
         v: &Value,
         pb: Option<&ProgressBar>,
     ) -> anyhow::Result<Plan> {
-        let app_name = v["AppName"].as_str().expect("AppName key").to_string();
+        let app_name = v["AppName"].as_str()
+            .or_else(|| v["appname"].as_str())
+            .expect("AppName/appname key")
+            .to_string();
         let app_id = v["appid"].as_u64().expect("appid key") as u32;
 
         let games = self.grid_client.search_by_name(&app_name).await?;
