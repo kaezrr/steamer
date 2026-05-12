@@ -21,10 +21,10 @@ use steamlocate::SteamDir;
 use crate::asset_kind::AssetKind;
 use crate::asset_kind::AssetSource;
 use crate::asset_kind::Grid;
-use crate::asset_kind::Head;
 use crate::asset_kind::Hero;
 use crate::asset_kind::Icon;
 use crate::asset_kind::Logo;
+use crate::asset_kind::Wide;
 use crate::clients::SteamClient;
 use crate::clients::SteamGridClient;
 use crate::clients::responses::Asset;
@@ -80,7 +80,7 @@ pub struct ResolvedGame {
     grid: Option<Asset<Grid>>,
     hero: Option<Asset<Hero>>,
     logo: Option<Asset<Logo>>,
-    head: Option<Asset<Head>>,
+    wide: Option<Asset<Wide>>,
 }
 
 impl ResolvedGame {
@@ -116,8 +116,8 @@ impl ResolvedGame {
             });
         }
 
-        if let Some(asset) = self.head {
-            requests.push(AssetRequest::Head {
+        if let Some(asset) = self.wide {
+            requests.push(AssetRequest::Wide {
                 app_id: self.app_id,
                 asset,
             });
@@ -245,6 +245,7 @@ impl App {
             "Done! All assets were saved at {}",
             self.paths.grid.display()
         );
+        println!("Restart your Steam application to see the changes!");
 
         Ok(())
     }
@@ -255,10 +256,13 @@ impl App {
         v: &Value,
         pb: Option<&ProgressBar>,
     ) -> anyhow::Result<Plan> {
-        let app_name = v["AppName"].as_str()
+        // Check for `AppName` otherwise fallback to `appname`
+        let app_name = v["AppName"]
+            .as_str()
             .or_else(|| v["appname"].as_str())
             .expect("AppName/appname key")
             .to_string();
+
         let app_id = v["appid"].as_u64().expect("appid key") as u32;
 
         let games = self.grid_client.search_by_name(&app_name).await?;
@@ -271,20 +275,20 @@ impl App {
         let need_hero = self.need_asset::<Hero>(app_id);
         let need_logo = self.need_asset::<Logo>(app_id);
         let need_icon = self.need_asset::<Icon>(app_id);
-        let need_head = self.need_asset::<Head>(app_id);
+        let need_wide = self.need_asset::<Wide>(app_id);
 
-        if !need_icon && !need_hero && !need_logo && !need_grid && !need_head {
+        if !need_icon && !need_hero && !need_logo && !need_grid && !need_wide {
             return Ok(Plan::AlreadyExists(app_name));
         }
 
         let steam_appid = self.grid_client.find_steam_appid(game.id).await?;
 
-        let (grid, hero, logo, icon, head) = tokio::join!(
+        let (grid, hero, logo, icon, wide) = tokio::join!(
             maybe(need_grid, self.fetch_asset::<Grid>(game.id, steam_appid)),
             maybe(need_hero, self.fetch_asset::<Hero>(game.id, steam_appid)),
             maybe(need_logo, self.fetch_asset::<Logo>(game.id, steam_appid)),
             maybe(need_icon, self.fetch_asset::<Icon>(game.id, steam_appid)),
-            maybe(need_head, self.fetch_asset::<Head>(game.id, steam_appid)),
+            maybe(need_wide, self.fetch_asset::<Wide>(game.id, steam_appid)),
         );
 
         if let Some(pb) = pb {
@@ -300,7 +304,7 @@ impl App {
             grid: grid?,
             hero: hero?,
             logo: logo?,
-            head: head?,
+            wide: wide?,
         })))
     }
 
@@ -437,9 +441,9 @@ pub enum AssetRequest {
         asset: Asset<Icon>,
     },
 
-    Head {
+    Wide {
         app_id: u32,
-        asset: Asset<Head>,
+        asset: Asset<Wide>,
     },
 }
 
@@ -498,8 +502,8 @@ impl AssetRequest {
                 Ok(Some(IconUpdate { path, key }))
             }
 
-            Self::Head { app_id, asset } => {
-                let image = match Head::preferred_source(app.args.official) {
+            Self::Wide { app_id, asset } => {
+                let image = match Wide::preferred_source(app.args.official) {
                     AssetSource::OfficialSteam => app.steam_client.download_asset(&asset).await?,
                     AssetSource::SteamGridDb => app.grid_client.download_asset(&asset).await?,
                 };

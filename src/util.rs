@@ -2,6 +2,7 @@ use std::io::Write;
 use std::path::Path;
 
 use comfy_table::Cell;
+use comfy_table::Color;
 use comfy_table::ContentArrangement;
 use comfy_table::Table;
 use comfy_table::presets::UTF8_FULL;
@@ -80,7 +81,7 @@ pub fn print_plan(plans: &[Plan]) {
     table
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(vec!["Game", "Grid", "Hero", "Logo", "Icon", "Header"]);
+        .set_header(vec!["Game", "Grid", "Hero", "Logo", "Icon", "Wide"]);
 
     let mut already_exists = Vec::new();
     let mut not_found = Vec::new();
@@ -88,15 +89,21 @@ pub fn print_plan(plans: &[Plan]) {
     for plan in plans {
         match plan {
             Plan::Found(req) => {
-                let asset = |v: bool| if v { "Y" } else { "N" };
+                let asset = |v: bool| {
+                    if v {
+                        Cell::new("✓").fg(Color::Green)
+                    } else {
+                        Cell::new("✘").fg(Color::Red)
+                    }
+                };
 
                 table.add_row(vec![
                     Cell::new(&req.app_name),
-                    Cell::new(asset(req.grid.is_some())),
-                    Cell::new(asset(req.hero.is_some())),
-                    Cell::new(asset(req.logo.is_some())),
-                    Cell::new(asset(req.icon.is_some())),
-                    Cell::new(asset(req.head.is_some())),
+                    asset(req.grid.is_some()),
+                    asset(req.hero.is_some()),
+                    asset(req.logo.is_some()),
+                    asset(req.icon.is_some()),
+                    asset(req.wide.is_some()),
                 ]);
             }
 

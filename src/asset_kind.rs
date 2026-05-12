@@ -17,7 +17,7 @@ pub struct Icon;
 pub struct Logo;
 pub struct Hero;
 pub struct Grid;
-pub struct Head;
+pub struct Wide;
 
 impl AssetKind for Grid {
     fn url() -> &'static str {
@@ -143,7 +143,7 @@ impl AssetKind for Icon {
     }
 }
 
-impl AssetKind for Head {
+impl AssetKind for Wide {
     fn url() -> &'static str {
         ""
     }
