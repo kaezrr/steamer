@@ -21,15 +21,16 @@ cargo install --git https://github.com/kaezrr/steamer.git
 You will need a SteamGridDB API key in order to use this tool, you can get it by creating an account on [SteamGridDB](https://www.steamgriddb.com/) and then going to [preferences > api](https://www.steamgriddb.com/profile/preferences/api)
 
 ```sh
-Usage: steamer [OPTIONS] --api-key <API_KEY>
+Usage: steamer [OPTIONS]
 
 Options:
-      --api-key <API_KEY>  Your SteamGridDB API key
+      --api-key <API_KEY>  Your SteamGridDB API key, required for first run
       --official           Fetch official steam store assets
   -d, --dry-run            Dry run the application without making any changes
   -i, --interactive        Interactively choose which SteamGridDB game to pick
   -o, --overwrite          Overwrite all existing assets and refetch them
-  -c, --clean              Clean the grid directory of all assets
+  -c, --clean              Clean all the assets in the grid directory
+  -n, --name <NAME>        Only fetch assets for a single game with matching name
   -h, --help               Print help
 ```
 
@@ -39,6 +40,6 @@ By default it always picks the first match for icons, heroes, grids and logos.
 
 - Extend it to work on normal steam games
 - ~Add the option to preserve existing steamgrid assets instead of always overwriting~
-- Add configuration file to save api key and other configuration options for covers, heroes, etc
+- ~Add configuration file to save api key and other configuration options for covers, heroes, etc~
 - Integrate OS file events and add a `--watch` so that it runs automatically in the background efficiently
 - ~Possible further parallelization improvements to make it work even faster~
