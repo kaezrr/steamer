@@ -81,7 +81,9 @@ pub fn print_plan(plans: &[Plan]) {
     table
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(vec!["Game", "Grid", "Hero", "Logo", "Icon", "Wide"]);
+        .set_header(vec![
+            "App ID", "Game", "Grid", "Hero", "Logo", "Icon", "Wide",
+        ]);
 
     let mut already_exists = Vec::new();
     let mut not_found = Vec::new();
@@ -98,6 +100,7 @@ pub fn print_plan(plans: &[Plan]) {
                 };
 
                 table.add_row(vec![
+                    Cell::new(req.app_id),
                     Cell::new(&req.app_name),
                     asset(req.grid.is_some()),
                     asset(req.hero.is_some()),
