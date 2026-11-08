@@ -63,6 +63,10 @@ pub struct Args {
     /// Clean all the assets in the grid directory
     #[arg(long, short, default_value_t = false)]
     pub clean: bool,
+
+    /// Only fetch assets for a single game with matching name
+    #[arg(long, short)]
+    pub name: Option<String>,
 }
 
 pub struct Image<T: AssetKind> {
@@ -151,8 +155,13 @@ fn resolve_api_key(args_key: Option<&str>) -> anyhow::Result<String> {
         )?;
 
         std::fs::write(&app_config_file, key)?;
+
+        println!("API key stored - {}", app_config_file.display());
+
         return Ok(key.to_string());
     }
+
+    println!("Found stored API key - {}", app_config_file.display());
 
     // Otherwise read it from config file, if present
     let key = std::fs::read_to_string(app_config_file).map_err(|_| {
@@ -194,6 +203,9 @@ impl App {
             .expect("shortcuts_vdf must be a json object");
 
         println!("Found {} non-steam game(s)!\n", shortcuts.len());
+        if let Some(ref name) = self.args.name {
+            println!("Searching for {name}...");
+        }
 
         let game_requests = if self.args.interactive {
             // Build sequentially, let user choose each game
@@ -290,6 +302,12 @@ impl App {
             .or_else(|| v["appname"].as_str())
             .expect("AppName/appname key")
             .to_string();
+
+        if let Some(ref name) = self.args.name
+            && !name.eq_ignore_ascii_case(&app_name)
+        {
+            return Ok(Plan::Ignored);
+        }
 
         let app_id = v["appid"].as_u64().expect("appid key") as u32;
 
@@ -435,6 +453,7 @@ pub enum Plan {
     Found(Box<ResolvedGame>),
     AlreadyExists(String),
     NotFound(String),
+    Ignored,
 }
 
 impl Plan {
@@ -442,7 +461,7 @@ impl Plan {
     pub fn into_resolved_game(self) -> Option<ResolvedGame> {
         match self {
             Self::Found(req) => Some(*req),
-            Self::AlreadyExists(_) | Self::NotFound(_) => None,
+            _ => None,
         }
     }
 }

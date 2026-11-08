@@ -114,6 +114,8 @@ pub fn print_plan(plans: &[Plan]) {
             Plan::NotFound(name) => {
                 not_found.push(name);
             }
+
+            Plan::Ignored => {}
         }
     }
 
