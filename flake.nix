@@ -2,25 +2,33 @@
   description = "A very basic flake";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.zst";
   };
 
   outputs =
-    { self, nixpkgs }:
+    { nixpkgs, ... }:
     let
-      pkgs = nixpkgs.legacyPackages."x86_64-linux";
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
     in
     {
-      devShells."x86_64-linux".default = pkgs.mkShell {
-        buildInputs = with pkgs; [
+      devShells.${system}.default = pkgs.mkShell {
+        packages = with pkgs; [
+          # Rust
           cargo
           rustc
-          rustfmt
-          clippy
           rust-analyzer
+          rustfmt
+
         ];
 
-        env.RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+        # env.RUSTFLAGS = "-C link-args=-Wl,-rpath,${
+        #   pkgs.lib.makeLibraryPath [
+        #     pkgs.wayland
+        #     pkgs.vulkan-loader
+        #     pkgs.libxkbcommon
+        #   ]
+        # }";
       };
     };
 }

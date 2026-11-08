@@ -422,7 +422,7 @@ impl SteamPaths {
         let user_id: u64 = {
             let login_users_vdf = steam.path().join("config").join("loginusers.vdf");
             let contents = std::fs::read_to_string(login_users_vdf)?;
-            let obj = keyvalues_parser::Vdf::parse(&contents)?.value.unwrap_obj();
+            let obj = keyvalues_parser::parse(&contents)?.value.unwrap_obj();
             obj.keys().next().expect("login_user").parse::<u64>()? - 76_561_197_960_265_728
         };
 

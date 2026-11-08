@@ -123,11 +123,11 @@ pub fn print_plan(plans: &[Plan]) {
     }
 
     if table.row_count() > 0 {
-        println!("\n\nAssets To Download:\n{table}");
+        println!("\n\nAssets to download:\n{table}");
     }
 
     if !already_exists.is_empty() {
-        println!("\nAlready Up To Date (use --overwrite to refetch):");
+        println!("\nAlready up to date (use --overwrite to refetch):");
 
         for name in already_exists {
             println!("- {name}");
@@ -135,7 +135,7 @@ pub fn print_plan(plans: &[Plan]) {
     }
 
     if !not_found.is_empty() {
-        println!("\nNo Match Found (try changing the shortcut name):");
+        println!("\nNo Match found (try changing the shortcut name):");
 
         for name in not_found {
             println!("- {name}");
