@@ -40,9 +40,9 @@ const CONCURRENT_REQUESTS: usize = 4;
     about = "Download SteamGridDB assets for your steam library automatically"
 )]
 pub struct Args {
-    /// Your SteamGridDB API key
+    /// Your SteamGridDB API key, required for first run
     #[arg(long)]
-    pub api_key: String,
+    pub api_key: Option<String>,
 
     /// Fetch official steam store assets
     #[arg(long, default_value_t = false)]
@@ -136,9 +136,37 @@ pub struct App {
     shortcuts_vdf: Value,
 }
 
+fn resolve_api_key(args_key: Option<&str>) -> anyhow::Result<String> {
+    let app_config_file = dirs::config_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find device config folder"))?
+        .join("steamer")
+        .join("config.txt");
+
+    // If an api key was explicitly provided, overwrite the exisiting config file
+    if let Some(key) = args_key {
+        std::fs::create_dir_all(
+            app_config_file
+                .parent()
+                .expect("app config file path has parent dir"),
+        )?;
+
+        std::fs::write(&app_config_file, key)?;
+        return Ok(key.to_string());
+    }
+
+    // Otherwise read it from config file, if present
+    let key = std::fs::read_to_string(app_config_file).map_err(|_| {
+        anyhow::anyhow!("API key was not found, please provide one with --api-key.")
+    })?;
+
+    Ok(key.trim().to_string())
+}
+
 impl App {
     pub fn build(args: Args) -> anyhow::Result<Self> {
-        let grid_client = SteamGridClient::new(&args.api_key)?;
+        let api_key = resolve_api_key(args.api_key.as_deref())?;
+
+        let grid_client = SteamGridClient::new(&api_key)?;
         let steam_client = SteamClient::new()?;
 
         let steam = steamlocate::locate()?;
