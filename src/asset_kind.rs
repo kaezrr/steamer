@@ -60,7 +60,7 @@ impl AssetKind for Hero {
 
     fn query_params() -> &'static [(&'static str, &'static str)] {
         &[
-            ("dimensions", "3840x1240"),
+            ("dimensions", "1920x620,3840x1240"),
             ("types", "static"),
             ("nsfw", "any"),
         ]
@@ -145,11 +145,15 @@ impl AssetKind for Icon {
 
 impl AssetKind for Wide {
     fn url() -> &'static str {
-        ""
+        "/grids/game/"
     }
 
     fn query_params() -> &'static [(&'static str, &'static str)] {
-        &[]
+        &[
+            ("dimensions", "920x430,460x215"),
+            ("types", "static"),
+            ("nsfw", "any"),
+        ]
     }
 
     fn filename(app_id: u32, ext: &str) -> String {
@@ -164,7 +168,11 @@ impl AssetKind for Wide {
         ""
     }
 
-    fn preferred_source(_offical: bool) -> AssetSource {
-        AssetSource::OfficialSteam
+    fn preferred_source(offical: bool) -> AssetSource {
+        if offical {
+            AssetSource::OfficialSteam
+        } else {
+            AssetSource::SteamGridDb
+        }
     }
 }
