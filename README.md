@@ -24,14 +24,15 @@ You will need a SteamGridDB API key in order to use this tool, you can get it by
 Usage: steamer [OPTIONS]
 
 Options:
-      --api-key <API_KEY>  Your SteamGridDB API key, required for first run
-      --official           Fetch official steam store assets
-  -d, --dry-run            Dry run the application without making any changes
-  -i, --interactive        Interactively choose which SteamGridDB game to pick
-  -o, --overwrite          Overwrite all existing assets and refetch them
-  -c, --clean              Clean all the assets in the grid directory
-  -n, --name <NAME>        Only fetch assets for a single game with matching name
-  -h, --help               Print help
+      --api-key <API_KEY>    Your SteamGridDB API key, required for first run
+      --official             Fetch official steam store assets
+  -d, --dry-run              Dry run the application without making any changes
+  -i, --interactive          Interactively choose which SteamGridDB game to pick, conflicts with --fetch-id
+  -o, --overwrite            Overwrite all existing assets and refetch them
+  -c, --clean                Clean all the assets in the grid directory
+  -n, --name <NAME>          Only fetch assets for a single game with matching name
+  -f, --fetch-id <FETCH_ID>  Override which source id to fetch from. Needs --name to work
+  -h, --help                 Print help
 ```
 
 By default it always picks the first match for icons, heroes, grids and logos.

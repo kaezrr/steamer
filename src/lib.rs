@@ -37,6 +37,7 @@ const CONCURRENT_REQUESTS: usize = 4;
 #[derive(clap::Parser)]
 #[command(
     name = "steamer",
+    version,
     about = "Download SteamGridDB assets for your steam library automatically"
 )]
 pub struct Args {
@@ -52,8 +53,8 @@ pub struct Args {
     #[arg(long, short, default_value_t = false)]
     pub dry_run: bool,
 
-    /// Interactively choose which SteamGridDB game to pick
-    #[arg(long, short, default_value_t = false)]
+    /// Interactively choose which SteamGridDB game to pick, conflicts with --fetch-id
+    #[arg(long, short, default_value_t = false, conflicts_with = "fetch_id")]
     pub interactive: bool,
 
     /// Overwrite all existing assets and refetch them
@@ -67,6 +68,10 @@ pub struct Args {
     /// Only fetch assets for a single game with matching name
     #[arg(long, short)]
     pub name: Option<String>,
+
+    /// Override which source id to fetch from. Needs --name to work
+    #[arg(long, short, requires = "name")]
+    pub fetch_id: Option<u64>,
 }
 
 pub struct Image<T: AssetKind> {
@@ -146,7 +151,7 @@ fn resolve_api_key(args_key: Option<&str>) -> anyhow::Result<String> {
         .join("steamer")
         .join("config.txt");
 
-    // If an api key was explicitly provided, overwrite the exisiting config file
+    // If an api key was explicitly provided, overwrite the existing config file
     if let Some(key) = args_key {
         std::fs::create_dir_all(
             app_config_file
@@ -360,19 +365,26 @@ impl App {
         steam_appid: Option<u64>,
     ) -> anyhow::Result<Option<Asset<T>>> {
         match T::preferred_source(self.args.official) {
-            AssetSource::SteamGridDb => Ok(self
-                .grid_client
-                .find_asset::<T>(grid_game_id)
-                .await?
-                .into_iter()
-                .next()),
+            AssetSource::SteamGridDb => {
+                let id = self.args.fetch_id.unwrap_or(grid_game_id);
+
+                let assets = match self.grid_client.find_asset::<T>(id).await {
+                    Ok(assets) => assets,
+                    Err(err) if is_not_found(&err) => return Ok(None),
+                    Err(err) => return Err(err.into()),
+                };
+
+                Ok(assets.into_iter().next())
+            }
 
             AssetSource::OfficialSteam => {
-                let Some(appid) = steam_appid else {
+                let id = self.args.fetch_id.or(steam_appid);
+
+                let Some(id) = id else {
                     return Ok(None);
                 };
 
-                Ok(self.steam_client.find_asset::<T>(appid).await)
+                Ok(self.steam_client.find_asset::<T>(id).await)
             }
         }
     }
@@ -567,4 +579,10 @@ impl AssetRequest {
 struct IconUpdate {
     path: String,
     key: String,
+}
+
+fn is_not_found(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<reqwest::Error>()
+        .and_then(|e| e.status())
+        .is_some_and(|code| code == reqwest::StatusCode::NOT_FOUND)
 }
